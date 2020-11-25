@@ -43,15 +43,33 @@ function createDom(fiber) {
   return dom
 }
 
+let wipRoot = null
 let nextUnitOfWork = null
 
 function render(element, container) {
-  nextUnitOfWork = {
+  wipRoot = {
     dom: container,
     props: {
       children: [element]
     }
   }
+  nextUnitOfWork = wipRoot
+}
+
+// ファイバーツリー全体をDOMにコミット
+function commitRoot() {
+  commitWork(wipRoot.child)
+  wipRoot = null
+}
+
+function commitWork(fiber) {
+  if (!fiber) {
+    return
+  }
+  const domParent = fiber.parent.dom
+  domParent.appendChild(fiber.dom)
+  commitWork(fiber.child)
+  commitWork(fiber.sibling)
 }
 
 function workLoop(deadline) {
@@ -62,6 +80,12 @@ function workLoop(deadline) {
     )
     shouldYield = deadline.timeRemaining() < 1
   }
+
+  // すべての作業が完了したらコミット
+  if (!nextUnitOfWork && wipRoot) {
+    commitRoot()
+  }
+
   requestIdleCallback(workLoop)
 }
 
@@ -70,10 +94,6 @@ requestIdleCallback(workLoop)
 function performUnitOfWork(fiber) {
   if (!fiber.dom) {
     fiber.dom = createDom(fiber)
-  }
-
-  if (fiber.parent) {
-    fiber.parent.dom.appendChild(fiber.dom)
   }
 
   // 子要素ごとに新しいファイバーを作成する
