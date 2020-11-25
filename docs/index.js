@@ -28,27 +28,94 @@ function createTextElement(text) {
   return {
     type: 'TEXT_ELEMENT',
     props: {
-      nodeValue: text,
+      nodeValue: text, // TextNode.nodeValue
       children: []
     }
   };
 }
 
-function render(element, container) {
-  var dom = element.type === 'TEXT_ELEMENT' ? document.createTextNode('') : document.createElement(element.type);
-
-  element.props.children.forEach(function (child) {
-    return render(child, dom);
-  });
+function createDom(fiber) {
+  var dom = fiber.type === 'TEXT_ELEMENT' ? document.createTextNode('') : document.createElement(fiber.type);
 
   var isProperty = function isProperty(key) {
     return key !== "children";
   };
-  Object.keys(element.props).filter(isProperty).forEach(function (name) {
-    dom[name] = element.props[name];
+  Object.keys(fiber.props).filter(isProperty).forEach(function (name) {
+    dom[name] = fiber.props[name];
   });
 
-  container.appendChild(dom);
+  return dom;
+}
+
+var nextUnitOfWork = null;
+
+function render(element, container) {
+  nextUnitOfWork = {
+    dom: container,
+    props: {
+      children: [element]
+    }
+  };
+}
+
+function workLoop(deadline) {
+  var shouldYield = false;
+  while (nextUnitOfWork && !shouldYield) {
+    nextUnitOfWork = performUnitOfWork(nextUnitOfWork);
+    shouldYield = deadline.timeRemaining() < 1;
+  }
+  requestIdleCallback(workLoop);
+}
+
+requestIdleCallback(workLoop);
+
+function performUnitOfWork(fiber) {
+  if (!fiber.dom) {
+    fiber.dom = createDom(fiber);
+  }
+
+  if (fiber.parent) {
+    fiber.parent.dom.appendChild(fiber.dom);
+  }
+
+  // 子要素ごとに新しいファイバーを作成する
+  var elements = fiber.props.children;
+  var index = 0;
+  var prevSibling = null;
+
+  while (index < elements.length) {
+    var _element = elements[index];
+
+    var newFiber = {
+      type: _element.type,
+      props: _element.props,
+      parent: fiber,
+      dom: null
+
+      // 子か兄弟を設定
+    };if (index === 0) {
+      fiber.child = newFiber;
+    } else {
+      prevSibling.sibling = newFiber;
+    }
+
+    prevSibling = newFiber;
+    index++;
+  }
+
+  // 子がいた場合はその子が次の作業
+  if (fiber.child) {
+    return fiber.child;
+  }
+  var nextFiber = fiber;
+  while (nextFiber) {
+    // 子がいない場合は兄弟が次の作業
+    if (nextFiber.sibling) {
+      return nextFiber.sibling;
+    }
+    // 兄弟もいない場合は親の兄弟を探す
+    nextFiber = nextFiber.parent;
+  }
 }
 
 var Diact = {
@@ -66,8 +133,6 @@ var Diact = {
   ),
   Diact.createElement('b', null)
 );
-
-console.log(element);
 
 var container = document.getElementById('root');
 Diact.render(element, container);
